@@ -1,5 +1,5 @@
 import numpy as np
-from numba import jit
+from collections import Counter
 
 class KNearestNeighbor(object):
     """ a kNN classifier with L2 distance """
@@ -103,9 +103,19 @@ class KNearestNeighbor(object):
         num_test = dists.shape[0]
         y_pred = np.zeros(num_test)
         for i in xrange(num_test):
+
             # A list of length k storing the labels of the k nearest neighbors to
             # the ith test point.
-            closest_y = []
+            closest_y = self.labels[np.argsort(dists[i])[:k]]
+            all_cnt = Counter(closest_y)
+            max_lbl, max_cnt = all_cnt.most_common()[0]
+
+            for lbl, cnt in all_cnt.most_common():
+                if cnt < max_cnt:
+                    break
+                if lbl < max_lbl:
+                    max_lbl = lbl
+            y_pred[i] = max_lbl
             #########################################################################
             # TODO:                                                                 #
             # Use the distance matrix to find the k nearest neighbors of the ith    #
@@ -113,7 +123,7 @@ class KNearestNeighbor(object):
             # neighbors. Store these labels in closest_y.                           #
             # Hint: Look up the function numpy.argsort.                             #
             #########################################################################
-            pass
+
             #########################################################################
             # TODO:                                                                 #
             # Now that you have found the labels of the k nearest neighbors, you    #
@@ -121,7 +131,7 @@ class KNearestNeighbor(object):
             # Store this label in y_pred[i]. Break ties by choosing the smaller     #
             # label.                                                                #
             #########################################################################
-            pass
+
             #########################################################################
             #                           END OF YOUR CODE                            #
             #########################################################################
