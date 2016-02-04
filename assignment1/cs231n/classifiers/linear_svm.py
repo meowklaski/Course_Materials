@@ -30,18 +30,16 @@ def svm_loss_naive(W, X, y, reg):
     for i in xrange(num_train):
         scores = X[i].dot(W)
         correct_class_score = scores[y[i]]
+        cnt = 0
         for j in xrange(num_classes):
-            cnt = 0
             if j == y[i]:
                 continue
             margin = scores[j] - correct_class_score + 1  # note delta = 1
-
             if margin > 0:
                 loss += margin
                 dW[:, j] += X[i]
                 cnt -= 1
         dW[:, y[i]] += cnt*X[i]
-
     # Right now the loss is a sum over all training examples, but we want it
     # to be an average instead so we divide by num_train.
     loss /= num_train
@@ -49,16 +47,7 @@ def svm_loss_naive(W, X, y, reg):
 
     # Add regularization to the loss.
     loss += 0.5 * reg * np.sum(W * W)
-
-    #############################################################################
-    # TODO:                                                                     #
-    # Compute the gradient of the loss function and store it dW.                #
-    # Rather that first computing the loss and then computing the derivative,   #
-    # it may be simpler to compute the derivative at the same time that the     #
-    # loss is being computed. As a result you may need to modify some of the    #
-    # code above to compute the gradient.                                       #
-    #############################################################################
-
+    dW += 2*reg*W
 
     return loss, dW
 
@@ -69,32 +58,28 @@ def svm_loss_vectorized(W, X, y, reg):
 
     Inputs and outputs are the same as svm_loss_naive.
     """
-    loss = 0.0
-    dW = np.zeros(W.shape)  # initialize the gradient as zero
+    # loss = 0.0
+    # dW = np.zeros(W.shape)  # initialize the gradient as zero
+    scores = X.dot(W)  # NxC
+    correct_labels = (np.array(range(len(y))), y)  # locations in scores where j = y[i]
+    correct_class_scores = scores[correct_labels]  # Nx1
 
-    #############################################################################
-    # TODO:                                                                     #
-    # Implement a vectorized version of the structured SVM loss, storing the    #
-    # result in loss.                                                           #
-    #############################################################################
-    pass
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    M = scores - correct_class_scores[:, np.newaxis] + 1  # NxC margins
+    not_thresh = np.where(M <= 0)
+    Lij = M
+    Lij[not_thresh] = 0
+    Lij[correct_labels] = 0
 
+    loss = np.sum(Lij)/X.shape[0] + 0.5*reg*np.sum(W * W)
 
-    #############################################################################
-    # TODO:                                                                     #
-    # Implement a vectorized version of the gradient for the structured SVM     #
-    # loss, storing the result in dW.                                           #
-    #                                                                           #
-    # Hint: Instead of computing the gradient from scratch, it may be easier    #
-    # to reuse some of the intermediate values that you used to compute the     #
-    # loss.                                                                     #
-    #############################################################################
-    pass
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    TMP = np.ones(M.shape)
+    TMP[not_thresh] = 0
+    TMP[correct_labels] = 0 # NxC; 1 where margin > 0
+    dW = X.T.dot(TMP)  # np.einsum('ij,ik->kj',TMP,X)
+    cnts = TMP.sum(axis=-1)
+    num_train = X.shape[0]
+    for i in xrange(num_train):
+        dW[:, y[i]] -= cnts[i]*X[i]
 
+    dW = dW/num_train + 2*reg*W
     return loss, dW
