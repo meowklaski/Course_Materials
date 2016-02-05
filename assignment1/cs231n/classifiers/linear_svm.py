@@ -18,7 +18,7 @@ def svm_loss_naive(W, X, y, reg):
 
     Returns a tuple of:
     - loss as single float
-    - gradient with respect to weights W; an array of same shape as W
+    - gradient of the loss with respect to weights W; an array of same shape as W
     """
     dW = np.zeros(W.shape)  # initialize the gradient as zero
 
@@ -54,12 +54,23 @@ def svm_loss_naive(W, X, y, reg):
 
 def svm_loss_vectorized(W, X, y, reg):
     """
-    Structured SVM loss function, vectorized implementation.
+    Structured SVM loss function, naive implementation (with loops).
 
-    Inputs and outputs are the same as svm_loss_naive.
+    Inputs have dimension D, there are C classes, and we operate on minibatches
+    of N examples.
+
+    Inputs:
+    - W: A numpy array of shape (D, C) containing weights.
+    - X: A numpy array of shape (N, D) containing a minibatch of data.
+    - y: A numpy array of shape (N,) containing training labels; y[i] = c means
+      that X[i] has label c, where 0 <= c < C.
+    - reg: (float) regularization strength
+
+    Returns a tuple of:
+    - loss as single float
+    - gradient of the loss with respect to weights W; an array of same shape as W
     """
-    # loss = 0.0
-    # dW = np.zeros(W.shape)  # initialize the gradient as zero
+    num_train = X.shape[0]
     scores = X.dot(W)  # NxC
     correct_labels = (np.array(range(len(y))), y)  # locations in scores where j = y[i]
     correct_class_scores = scores[correct_labels]  # Nx1
@@ -75,9 +86,11 @@ def svm_loss_vectorized(W, X, y, reg):
     TMP = np.ones(M.shape)
     TMP[not_thresh] = 0
     TMP[correct_labels] = 0 # NxC; 1 where margin > 0
+    # contributions from j != y[i]
     dW = X.T.dot(TMP)  # np.einsum('ij,ik->kj',TMP,X)
+
+    # contributions from j = y[i]
     cnts = TMP.sum(axis=-1)
-    num_train = X.shape[0]
     for i in xrange(num_train):
         dW[:, y[i]] -= cnts[i]*X[i]
 
