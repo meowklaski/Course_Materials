@@ -47,7 +47,7 @@ def svm_loss_naive(W, X, y, reg):
 
     # Add regularization to the loss.
     loss += 0.5 * reg * np.sum(W * W)
-    dW += 2*reg*W
+    dW += reg*W
 
     return loss, dW
 
@@ -86,13 +86,9 @@ def svm_loss_vectorized(W, X, y, reg):
     TMP = np.ones(M.shape)
     TMP[not_thresh] = 0
     TMP[correct_labels] = 0 # NxC; 1 where margin > 0
+    TMP[correct_labels] = -1*TMP.sum(axis=-1)
     # contributions from j != y[i]
     dW = X.T.dot(TMP)  # np.einsum('ij,ik->kj',TMP,X)
-
-    # contributions from j = y[i]
-    cnts = TMP.sum(axis=-1)
-    for i in xrange(num_train):
-        dW[:, y[i]] -= cnts[i]*X[i]
-
-    dW = dW/num_train + 2*reg*W
+    dW /= num_train
+    dW += reg*W
     return loss, dW
