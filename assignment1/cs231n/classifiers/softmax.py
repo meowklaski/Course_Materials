@@ -23,7 +23,22 @@ def softmax_loss_naive(W, X, y, reg):
     # Initialize the loss and gradient to zero.
     loss = 0.0
     dW = np.zeros_like(W)
+    num_image = X.shape[0]
+    num_class = W.shape[1]
+    for i in xrange(num_image):
+        scores = X[i].dot(W)
+        max_score = np.max(scores)
+        exp_scores = np.exp(scores - max_score)
+        probs = exp_scores/np.sum(exp_scores)
+        loss -= np.log(probs[y[i]])
+        for j in num_class:
+            if j == y[i]:
+                dW[:,j] += (probs[j]-1.)*X[i]
+            else:
+                dW[:,j] += probs[j]*X[i]
 
+    loss = loss/num_image + 0.5*reg*np.sum(W*W)
+    dW = dW/num_image + 2*reg*W
     #############################################################################
     # TODO: Compute the softmax loss and its gradient using explicit loops.     #
     # Store the loss in loss and the gradient in dW. If you are not careful     #
@@ -47,6 +62,14 @@ def softmax_loss_vectorized(W, X, y, reg):
     # Initialize the loss and gradient to zero.
     loss = 0.0
     dW = np.zeros_like(W)
+    scores = X.dot(W)
+    max_scores = np.max(scores, axis=1, keepdims=True)
+    exp_scores = np.exp(scores - max_scores)
+    probs = exp_scores/np.sum(exp_scores, axis=1, keepdims=True)
+
+    label_locs = [(i,y[i]) for i in xrange(X.shape[0])]
+
+    loss = -np.sum(np.log(exp_scores[label_locs]))/X.shape[0] + 0.5*reg*np.sum(W*W)
 
     #############################################################################
     # TODO: Compute the softmax loss and its gradient using no explicit loops.  #
