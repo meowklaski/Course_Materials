@@ -77,7 +77,7 @@ class KNearestNeighbor(object):
         dists = np.zeros((num_test, num_train))
         d2 = np.sum(self.data**2, axis=1)
         for i in xrange(num_test):
-            dists[i,:] = d2 + np.sum(X[i,:]**2.) - 2.*np.einsum('ij,j->i', self.data, X[i,:])
+            dists[i,:] = d2 + np.sum(X[i,:]**2.) - 2.*self.data.dot(X[i, :])
         return np.sqrt(dists)
 
     def compute_distances_no_loops(self, X):
@@ -86,7 +86,7 @@ class KNearestNeighbor(object):
         in self.data using no explicit loops.
 
         Input / Output: Same as compute_distances_two_loops"""
-        return np.sqrt(np.sum(X**2, axis=1, keepdims=True) + np.sum(self.data**2, axis=1) - 2.*np.einsum('ij,kj->ik',X,self.data))
+        return np.sqrt(np.sum(X**2, axis=1, keepdims=True) + np.sum(self.data**2, axis=1) - 2.*X.dot(self.data.T))
 
     def predict_labels(self, dists, k=1):
         """
