@@ -68,23 +68,25 @@ class TwoLayerNet(object):
         N, D = X.shape
 
         # Compute the forward pass
-        scores = None
+        h1 = np.maximum(0, X.dot(W1) + b1)
+        scores = h1.dot(W1) + b2
+
         #############################################################################
         # TODO: Perform the forward pass, computing the class scores for the input. #
         # Store the result in the scores variable, which should be an array of      #
         # shape (N, C).                                                             #
         #############################################################################
-        pass
-        #############################################################################
-        #                              END OF YOUR CODE                             #
-        #############################################################################
-
         # If the targets are not given then jump out, we're done
         if y is None:
             return scores
 
         # Compute the loss
-        loss = None
+        max_scores = np.max(scores, axis=1, keepdims=True)
+        exp_scores = np.exp(scores - max_scores)  # Shift scores to prevent numerical error
+        probs = exp_scores/np.sum(exp_scores, axis=1, keepdims=True)
+
+        label_locs = zip(*[(i,y[i]) for i in xrange(X.shape[0])])
+        loss = -np.sum(np.log(probs[label_locs]))/X.shape[0] + 0.5*reg*(np.sum(W1*W1) + np.sum(W2*W2))
         #############################################################################
         # TODO: Finish the forward pass, and compute the loss. This should include  #
         # both the data loss and L2 regularization for W1 and W2. Store the result  #
@@ -92,13 +94,22 @@ class TwoLayerNet(object):
         # classifier loss. So that your results match ours, multiply the            #
         # regularization loss by 0.5                                                #
         #############################################################################
-        pass
-        #############################################################################
-        #                              END OF YOUR CODE                             #
-        #############################################################################
 
         # Backward pass: compute gradients
+        # D = h1*W
         grads = {}
+        dD = np.copy(probs)
+        dD[label_locs] -= 1.
+        dW2 = h1.T.dot(dD)  # np.einsum('ij,ik->kj',probs,X)
+        dW2 /= X.shape[0]
+        dW2 += reg*W2
+
+        dh1 = dD.dot(W2.T)
+
+        tmp = np.zeros(shape=probs.shape, dtype=float)
+        tmp[label_locs] = 1.
+        db2 = probs.sum(axis=0) - tmp.sum(axis=0)
+
         #############################################################################
         # TODO: Compute the backward pass, computing the derivatives of the weights #
         # and biases. Store the results in the grads dictionary. For example,       #
