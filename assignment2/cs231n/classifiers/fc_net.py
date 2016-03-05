@@ -42,21 +42,6 @@ class TwoLayerNet(object):
         self.params['W2'] = np.random.normal(loc=0.0, scale=weight_scale, size=(hidden_dim, num_classes))
         self.params['b2'] = np.zeros(shape=num_classes, dtype=float)
 
-
-
-        ############################################################################
-        # TODO: Initialize the weights and biases of the two-layer net. Weights    #
-        # should be initialized from a Gaussian with standard deviation equal to   #
-        # weight_scale, and biases should be initialized to zero. All weights and  #
-        # biases should be stored in the dictionary self.params, with first layer  #
-        # weights and biases using the keys 'W1' and 'b1' and second layer weights #
-        # and biases using the keys 'W2' and 'b2'.                                 #
-        ############################################################################
-        pass
-        ############################################################################
-        #                             END OF YOUR CODE                             #
-        ############################################################################
-
     def loss(self, X, y=None):
         """
         Compute loss and gradient for a minibatch of data.
@@ -148,6 +133,18 @@ class FullyConnectedNet(object):
         self.dtype = dtype
         self.params = {}
 
+        dims_list = [input_dim] + hidden_dims + [num_classes]
+        for l, ndim in enumerate(dims_list[1:]):
+            ind = str(l+1)
+            self.params['W'+ind] = np.random.normal(loc=0.0, scale=weight_scale, size=(dims_list[l], ndim))
+            self.params['b'+ind] = np.zeros(shape=ndim)
+
+        if self.use_batchnorm:
+            for l, ndim in range(1, self.num_layers+1):
+                ind = str(l+1)
+                self.params['gamma'+ind] = 1.
+                self.params['beta'+ind] = 0.
+
         ############################################################################
         # TODO: Initialize the parameters of the network, storing all values in    #
         # the self.params dictionary. Store weights and biases for the first layer #
@@ -159,10 +156,6 @@ class FullyConnectedNet(object):
         # first layer in gamma1 and beta1; for the second layer use gamma2 and     #
         # beta2, etc. Scale parameters should be initialized to one and shift      #
         # parameters should be initialized to zero.                                #
-        ############################################################################
-        pass
-        ############################################################################
-        #                             END OF YOUR CODE                             #
         ############################################################################
 
         # When using dropout we need to pass a dropout_param dictionary to each
@@ -189,9 +182,22 @@ class FullyConnectedNet(object):
 
     def loss(self, X, y=None):
         """
-        Compute loss and gradient for the fully-connected net.
+        Compute loss and gradient for a minibatch of data.
 
-        Input / output: Same as TwoLayerNet above.
+        Inputs:
+        - X: Array of input data of shape (N, d_1, ..., d_k)
+        - y: Array of labels, of shape (N,). y[i] gives the label for X[i].
+
+        Returns:
+        If y is None, then run a test-time forward pass of the model and return:
+        - scores: Array of shape (N, C) giving classification scores, where
+          scores[i, c] is the classification score for X[i] and class c.
+
+        If y is not None, then run a training-time forward and backward pass and
+        return a tuple of:
+        - loss: Scalar value giving the loss
+        - grads: Dictionary with the same keys as self.params, mapping parameter
+          names to gradients of the loss with respect to those parameters.
         """
         X = X.astype(self.dtype)
         mode = 'test' if y is None else 'train'
@@ -204,7 +210,18 @@ class FullyConnectedNet(object):
             for bn_param in self.bn_params:
                 bn_param[mode] = mode
 
+        caches = []
         scores = None
+        in_ = X
+        for l in range(self.num_layers-1):
+            ind = str(l+1)
+            out, cache = affine_relu_forward(in_, self.params['W'+ind], self.params['b'+ind])
+            in_ = out
+        ind += 1
+        out, cache = affine_forward(in_, self.params['W'+ind], self.params['b'+ind])
+
+        # TO RYAN: DO SOFTMAX NEXT! LOVE, RYAN
+
         ############################################################################
         # TODO: Implement the forward pass for the fully-connected net, computing  #
         # the class scores for X and storing them in the scores variable.          #
