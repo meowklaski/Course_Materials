@@ -140,10 +140,10 @@ class FullyConnectedNet(object):
             self.params['b'+ind] = np.zeros(shape=ndim)
 
         if self.use_batchnorm:
-            for l, ndim in range(1, self.num_layers+1):
+            for l in range(len(hidden_dims)):
                 ind = str(l+1)
-                self.params['gamma'+ind] = 1.
-                self.params['beta'+ind] = 0.
+                self.params['gamma'+ind] = np.ones(hidden_dims[l])
+                self.params['beta'+ind] = np.zeros(hidden_dims[l])
 
         ############################################################################
         # TODO: Initialize the parameters of the network, storing all values in    #
@@ -213,11 +213,20 @@ class FullyConnectedNet(object):
         caches = []
 
         in_ = X
-        for l in range(1, self.num_layers):
-            ind = str(l)
-            out, cache = affine_relu_forward(in_, self.params['W'+ind], self.params['b'+ind])
-            caches.append(cache)
-            in_ = out
+        if self.use_batchnorm:
+            for l in range(1, self.num_layers):
+                ind = str(l)
+                out, cache = affine_batchnorm_relu_forward(in_, self.params['W'+ind], self.params['b'+ind],
+                                                           self.params['gamma'+ind], self.params['beta'+ind],
+                                                           self.bn_params[l-1])
+                caches.append(cache)
+                in_ = out
+        else:
+            for l in range(1, self.num_layers):
+                ind = str(l)
+                out, cache = affine_relu_forward(in_, self.params['W'+ind], self.params['b'+ind])
+                caches.append(cache)
+                in_ = out
         ind = str(self.num_layers)
         scores, cache = affine_forward(in_, self.params['W'+ind], self.params['b'+ind])
         caches.append(cache)
@@ -246,12 +255,15 @@ class FullyConnectedNet(object):
 
         # output layer & hidden layers
         for l in range(self.num_layers, 0, -1):
-            if l == self.num_layers:
-                backprop = affine_backward
-            else:
-                backprop = affine_relu_backward
             ind = str(l)
-            dL, grads['W'+ind], grads['b'+ind] = backprop(dL, caches[l-1])
+            if l == self.num_layers:
+                dL, grads['W'+ind], grads['b'+ind] = affine_backward(dL, caches[l-1])
+
+            elif self.use_batchnorm:
+                dL, grads['W'+ind], grads['b'+ind], grads['gamma'+ind], grads['beta'+ind] = \
+                    affine_batchnorm_relu_backward(dL, caches[l-1])
+            else:
+                dL, grads['W'+ind], grads['b'+ind] = affine_relu_backward(dL, caches[l-1])
             grads['W'+ind] += self.reg*self.params['W'+ind]
 
         ############################################################################
@@ -266,10 +278,6 @@ class FullyConnectedNet(object):
         # NOTE: To ensure that your implementation matches ours and you pass the   #
         # automated tests, make sure that your L2 regularization includes a factor #
         # of 0.5 to simplify the expression for the gradient.                      #
-        ############################################################################
-        pass
-        ############################################################################
-        #                             END OF YOUR CODE                             #
         ############################################################################
 
         return loss, grads
