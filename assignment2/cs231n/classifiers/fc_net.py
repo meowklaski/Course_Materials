@@ -199,27 +199,8 @@ class FullyConnectedNet(object):
 
         caches = []
         dropout_caches = []
-        # in_ = X
-        # if self.use_batchnorm:
-        #     for l in range(1, self.num_layers):
-        #         ind = str(l)
-        #         out, cache = affine_batchnorm_relu_forward(in_, self.params['W'+ind], self.params['b'+ind],
-        #                                                    self.params['gamma'+ind], self.params['beta'+ind],
-        #                                                    self.bn_params[l-1])
-        #         caches.append(cache)
-        #         in_ = out
-        # else:
-        #     for l in range(1, self.num_layers):
-        #         ind = str(l)
-        #         out, cache = affine_relu_forward(in_, self.params['W'+ind], self.params['b'+ind])
-        #         caches.append(cache)
-        #         in_ = out
-        # ind = str(self.num_layers)
-        # scores, cache = affine_forward(in_, self.params['W'+ind], self.params['b'+ind])
-        # caches.append(cache)
 
         in_ = X
-
         for l in range(1, self.num_layers):
             ind = str(l)
 
@@ -239,19 +220,6 @@ class FullyConnectedNet(object):
         ind = str(self.num_layers)
         scores, cache = affine_forward(in_, self.params['W'+ind], self.params['b'+ind])
         caches.append(cache)
-
-        ############################################################################
-        # TODO: Implement the forward pass for the fully-connected net, computing  #
-        # the class scores for X and storing them in the scores variable.          #
-        #                                                                          #
-        # When using dropout, you'll need to pass self.dropout_param to each       #
-        # dropout forward pass.                                                    #
-        #                                                                          #
-        # When using batch normalization, you'll need to pass self.bn_params[0] to #
-        # the forward pass for the first batch normalization layer, pass           #
-        # self.bn_params[1] to the forward pass for the second batch normalization #
-        # layer, etc.                                                              #
-        ############################################################################
 
 
         # If test mode return early

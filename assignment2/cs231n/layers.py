@@ -221,6 +221,36 @@ def batchnorm_backward_alt(dout, cache):
     return dx, dgamma, dbeta
 
 
+def multi_layer_conv(data, kernel, stride, pad):
+    dat = data[0]
+    assert stride > 0
+    assert dat.ndim == kernel.ndim
+    stride = int(round(stride))
+
+    outshape = (np.array(dat.shape)-np.array(kernel.shape)+2.*pad)/float(stride)+1.
+    for num in outshape:
+        assert (num).is_integer(), num
+    outshape = np.round(outshape).astype(int)
+
+    total_out_shape = tuple([data.shape[0]]+[i for i in outshape])
+    total_out = np.zeros(total_out_shape, dtype=data.dtype)
+
+    indices = range(dat.ndim)
+    all_pos = list(product(*[stride*np.arange(i) for i in outshape]))
+    all_slices = [tuple(slice(start, start+kernel.shape[i]) for i,start in enumerate(x)) for x in all_pos]
+
+    for n, dat in enumerate(data):
+        if pad:
+            dat = np.pad(dat, pad, mode='constant')
+            out = np.zeros(outshape, dtype=data.dtype)
+        for i,x in enumerate(all_pos):
+            slices = all_slices[i]
+            loc = np.unravel_index(i, outshape)
+            out[loc] = np.einsum(dat[slices], indices, kernel, indices)
+        total_out[n] = out
+    return total_out
+
+
 def dropout_forward(x, dropout_param):
     """
     Performs the forward pass for (inverted) dropout.
