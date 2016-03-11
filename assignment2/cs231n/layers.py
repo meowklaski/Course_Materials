@@ -1,5 +1,6 @@
 import numpy as np
-
+from scipy.signal import fftconvolve, convolve
+from itertools import product
 
 def affine_forward(x, w, b):
     """
@@ -221,36 +222,6 @@ def batchnorm_backward_alt(dout, cache):
     return dx, dgamma, dbeta
 
 
-def multi_layer_conv(data, kernel, stride, pad):
-    dat = data[0]
-    assert stride > 0
-    assert dat.ndim == kernel.ndim
-    stride = int(round(stride))
-
-    outshape = (np.array(dat.shape)-np.array(kernel.shape)+2.*pad)/float(stride)+1.
-    for num in outshape:
-        assert (num).is_integer(), num
-    outshape = np.round(outshape).astype(int)
-
-    total_out_shape = tuple([data.shape[0]]+[i for i in outshape])
-    total_out = np.zeros(total_out_shape, dtype=data.dtype)
-
-    indices = range(dat.ndim)
-    all_pos = list(product(*[stride*np.arange(i) for i in outshape]))
-    all_slices = [tuple(slice(start, start+kernel.shape[i]) for i,start in enumerate(x)) for x in all_pos]
-
-    for n, dat in enumerate(data):
-        if pad:
-            dat = np.pad(dat, pad, mode='constant')
-            out = np.zeros(outshape, dtype=data.dtype)
-        for i,x in enumerate(all_pos):
-            slices = all_slices[i]
-            loc = np.unravel_index(i, outshape)
-            out[loc] = np.einsum(dat[slices], indices, kernel, indices)
-        total_out[n] = out
-    return total_out
-
-
 def dropout_forward(x, dropout_param):
     """
     Performs the forward pass for (inverted) dropout.
@@ -308,6 +279,96 @@ def dropout_backward(dout, cache):
     return dx
 
 
+def flip_ndarray(x):
+    """ Reverse the positions of the entries of the input array along all of its axes.
+
+        Parameters
+        ----------
+        x : numpy.ndarray
+
+        Returns
+        -------
+        out : numpy.ndarray
+            A view of x with all of its axes reversed. Since a view is returned, this operation is O(1).
+
+        Example
+        ------
+        x = array([[1, 2, 3],
+                   [6, 5, 6]])
+        flip_ndarray(x))
+        >> array([[6, 5, 4],
+                  [3, 2, 1]])"""
+    loc = tuple(slice(None, None, -1) for i in xrange(x.ndim))
+    return x[loc]
+
+
+def multi_layer_conv(data, kernel, stride, pad, flip_kernel=True, outshape=None, channels=True):
+    """ Perform a convolution on a collection of ndarrays of uniform shape with a kernel,
+        using a specified stride and padding.
+
+        The convolution
+
+        Parameters
+        ----------
+        data : Iterable[numpy.ndarray, ...]
+            Collection of arrays to be convolved over.
+        kernel : numpy.ndarray
+            Kernel used to perform convolution.
+        stride : int ( > 0)
+            Step size used while sliding the kernel during the convolution.
+        pad : int ( >= 0)
+            Specifies the number of zeroes added to every side of each input array.
+        flip_kernel : bool, optional
+            When True (default), reverse all of the axes of the kernel before performing convolutions.
+        outshape : Union[NoneType, Tuple[int, ...]], optional
+            Provide the known output shape of the convolution, allowing the function to bypass
+            sanity checks and some initial computations.
+
+        Returns
+        -------
+        out : numpy.ndarray, shape = (len(data), data[0].shape[0], data[0].shape[1], ...)
+            An array of the resulting convolutions. The first axis runs over the results of
+            the independent convolutions that were performed.
+        """
+
+    if flip_kernel:
+        kernel = flip_ndarray(kernel)
+    for n, dat in enumerate(data):
+        if n == 0:  # initialize output and stride information
+            if np.max(dat.shape) >= 500:
+                conv = fftconvolve  # use fft method for large input arrays
+            else:
+                conv = convolve
+
+            if outshape is None:
+                npad = np.array([0]+[pad for i in xrange(dat.ndim-1)])
+                outshape = (np.array(dat.shape)-np.array(kernel.shape)+2.*npad)/float(stride)+1.
+                for num in outshape:
+                    assert (num).is_integer(), num
+                outshape = np.round(outshape).astype(int)
+
+            if pad:
+                if channels:
+                    pad = [(0, 0)] + [(pad, pad) for i in xrange(dat.ndim-1)]
+
+            total_out_shape = tuple([data.shape[0]]+[i for i in outshape])
+            total_out = np.zeros(total_out_shape, dtype=dat.dtype)
+
+            all_pos = zip(*product(*(stride*np.arange(i) for i in outshape)))
+
+        if pad:
+            dat = np.pad(dat, pad, mode='constant').astype(dat.dtype)
+
+        full_conv = conv(dat, kernel, mode='valid')
+        if stride == 1:
+            total_out[n] = full_conv
+        else:
+            out = np.zeros(outshape, dtype=full_conv.dtype)
+            out.flat = full_conv[all_pos]
+            total_out[n] = out
+    return total_out
+
+
 def conv_forward_naive(x, w, b, conv_param):
     """
     A naive implementation of the forward pass for a convolutional layer.
@@ -331,17 +392,64 @@ def conv_forward_naive(x, w, b, conv_param):
       W' = 1 + (W + 2 * pad - WW) / stride
     - cache: (x, w, b, conv_param)
     """
-    out = None
-    #############################################################################
-    # TODO: Implement the convolutional forward pass.                           #
-    # Hint: you can use the function np.pad for padding.                        #
-    #############################################################################
-    pass
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    tmp = 1. + (np.array(x.shape[2:]) + 2*conv_param['pad'] - np.array(w.shape[2:]))/conv_param['stride']
+    out = np.zeros((x.shape[0], w.shape[0], int(round(tmp[0])), int(round(tmp[1]))))
+    outshape = None
+    for n, kernel in enumerate(w):
+        out[:, n:n+1, :, :] = multi_layer_conv(x, kernel, conv_param['stride'], conv_param['pad'], outshape=outshape)
+        out[:, n:n+1, :, :] += b[n]
+
     cache = (x, w, b, conv_param)
     return out, cache
+
+
+def back_prop_dw(data, dout, kernel, stride, pad):
+    dw = np.zeros_like(kernel, dtype=kernel.dtype)
+    for n, dat in enumerate(data):
+        dy = dout[n][np.newaxis, :, :]
+        if n == 0:  # initialize output and stride information
+            npad = np.array([0]+[pad for i in xrange(dat.ndim-1)])
+            outshape = (np.array(dat.shape)-np.array(kernel.shape)+2.*npad)/float(stride)+1.
+            outshape = np.round(outshape).astype(int)
+
+            if pad:
+                pad = [(0, 0)] + [(pad, pad) for i in xrange(dat.ndim-1)]
+
+        all_pos = list(product(*[stride*np.arange(i) for i in outshape]))
+        all_slices = [tuple(slice(start, start+kernel.shape[i]) for i,start in enumerate(x)) for x in all_pos]
+
+        if pad:
+            dat = np.pad(dat, pad, mode='constant').astype(dat.dtype)
+
+        for i,slices in enumerate(all_slices):
+            loc = np.unravel_index(i, outshape)
+            dw += dy[loc]*dat[slices]
+    return dw
+
+
+def back_prop_dx(data, dout, kernel, stride, pad):
+    for n, dat in enumerate(data):
+        dy = dout[n][np.newaxis, :, :]
+        out = np.zeros((dat.shape[0], dat.shape[1]+2*pad, dat.shape[2]+2*pad), dtype=data.dtype)
+        if n == 0:  # initialize output and stride information
+            npad = np.array([0]+[pad for i in xrange(dat.ndim-1)])
+            outshape = (np.array(dat.shape)-np.array(kernel.shape)+2.*npad)/float(stride)+1.
+            outshape = np.round(outshape).astype(int)
+
+            total_out = np.zeros(data.shape, dtype=dat.dtype)
+            all_pos = list(product(*[stride*np.arange(i) for i in outshape]))
+            all_slices = [tuple(slice(start, start+kernel.shape[i]) for i,start in enumerate(x)) for x in all_pos]
+
+        for i, slices in enumerate(all_slices):
+            loc = np.unravel_index(i, outshape)
+
+            out[slices] += dy[loc]*kernel
+
+        if pad:
+            out = out[:, pad:-pad, pad:-pad]
+
+        total_out[n] = out[:]
+    return total_out
 
 
 def conv_backward_naive(dout, cache):
@@ -357,7 +465,16 @@ def conv_backward_naive(dout, cache):
     - dw: Gradient with respect to w
     - db: Gradient with respect to b
     """
-    dx, dw, db = None, None, None
+
+    x, w, b, conv_param = cache
+
+    dx = np.zeros_like(x, dtype=x.dtype)
+    dw = np.zeros_like(w, dtype=w.dtype)
+
+    for n, kernel in enumerate(w):
+        dx += back_prop_dx(x, dout[:,n,:,:], kernel, conv_param['stride'], conv_param['pad'])
+        dw[n:n+1, :, :, :] = back_prop_dw(x, dout[:,n,:,:], kernel, conv_param['stride'], conv_param['pad'])
+    db = np.sum(dout, axis=(0, 2, 3))
     #############################################################################
     # TODO: Implement the convolutional backward pass.                          #
     #############################################################################
