@@ -542,7 +542,7 @@ def max_pool(x, pool_shape, stride, pooling_axes, backprop=False, dout=None):
 
     if type(pooling_axes) is int:
         pooling_axes = (pooling_axes)
-    pooling_axes = tuple(pooling_axes)
+    pooling_axes = tuple(sorted(pooling_axes))
 
     pool_only_slice = tuple(slice(None, None) if i in pooling_axes else 0 for i in range(x.ndim))
     outshape = get_outshape(x[pool_only_slice].shape, pool_shape, stride)
