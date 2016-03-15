@@ -302,71 +302,107 @@ def flip_ndarray(x):
     return x[loc]
 
 
-def multi_layer_conv(data, kernel, stride, pad, flip_kernel=True, outshape=None, channels=True):
-    """ Perform a convolution on a collection of ndarrays of uniform shape with a kernel,
-        using a specified stride and padding.
-
-        The convolution
+def nd_convolve(dat, conv_kernel, stride, outshape=None):
+    """ Perform a convolution of two ndarrays, using a specified stride.
 
         Parameters
         ----------
         data : Iterable[numpy.ndarray, ...]
-            Collection of arrays to be convolved over.
+            Array to be convolved over.
         kernel : numpy.ndarray
             Kernel used to perform convolution.
         stride : int ( > 0)
             Step size used while sliding the kernel during the convolution.
-        pad : int ( >= 0)
-            Specifies the number of zeroes added to every side of each input array.
-        flip_kernel : bool, optional
-            When True (default), reverse all of the axes of the kernel before performing convolutions.
         outshape : Union[NoneType, Tuple[int, ...]], optional
             Provide the known output shape of the convolution, allowing the function to bypass
             sanity checks and some initial computations.
 
         Returns
         -------
-        out : numpy.ndarray, shape = (len(data), data[0].shape[0], data[0].shape[1], ...)
-            An array of the resulting convolutions. The first axis runs over the results of
-            the independent convolutions that were performed.
+        out : numpy.ndarray
+            An array of the resulting convolution.
         """
+    if np.max(dat.shape) >= 500:
+        conv = fftconvolve
+    else:
+        conv = convolve
 
-    if flip_kernel:
-        kernel = flip_ndarray(kernel)
-    for n, dat in enumerate(data):
-        if n == 0:  # initialize output and stride information
-            if np.max(dat.shape) >= 500:
-                conv = fftconvolve  # use fft method for large input arrays
-            else:
-                conv = convolve
+    if outshape is None:
+        outshape = get_outshape(dat.shape, conv_kernel.shape, stride)
 
-            if outshape is None:
-                npad = np.array([0]+[pad for i in xrange(dat.ndim-1)])
-                outshape = (np.array(dat.shape)-np.array(kernel.shape)+2.*npad)/float(stride)+1.
-                for num in outshape:
-                    assert (num).is_integer(), num
-                outshape = np.round(outshape).astype(int)
+    full_conv = conv(dat, conv_kernel, mode='valid')
 
-            if pad:
-                if channels:
-                    pad = [(0, 0)] + [(pad, pad) for i in xrange(dat.ndim-1)]
+    if stride == 1:
+        return full_conv
 
-            total_out_shape = tuple([data.shape[0]]+[i for i in outshape])
-            total_out = np.zeros(total_out_shape, dtype=dat.dtype)
+    all_pos = zip(*product(*(stride*np.arange(i) for i in outshape)))
+    out = np.zeros(outshape, dtype=dat.dtype)
+    out.flat = full_conv[all_pos]
+    return out
 
-            all_pos = zip(*product(*(stride*np.arange(i) for i in outshape)))
 
-        if pad:
-            dat = np.pad(dat, pad, mode='constant').astype(dat.dtype)
+def get_outshape(dat_shape, kernel_shape, stride):
+    """ Returns the shape of the ndarray resulting from the convolution, using specified stride,
+        of two ndarrays whose shapes are specified.
 
-        full_conv = conv(dat, kernel, mode='valid')
-        if stride == 1:
-            total_out[n] = full_conv
-        else:
-            out = np.zeros(outshape, dtype=full_conv.dtype)
-            out.flat = full_conv[all_pos]
-            total_out[n] = out
-    return total_out
+        Parameters
+        ----------
+        dat_shape : Iterable[int, ...]
+            Shape of array to be convolved over.
+        kernel_shape : Iterable[int, ...]
+            Shape of kernel used to perform convolution.
+        stride : int ( > 0)
+            Step size used while sliding the kernel during the convolution.
+
+        Returns
+        -------
+        out : numpy.ndarray([int, ...])
+            Shape of the array resulting from the convolution."""
+    dat_shape = np.array(dat_shape)
+    kernel_shape = np.array(kernel_shape)
+
+    assert stride > 0
+    stride = int(round(stride))
+    assert len(dat_shape) == len(kernel_shape), "kernel and data must have same number of dimensions"
+
+    outshape = (dat_shape-kernel_shape)/stride+1.
+    for num in outshape:
+        assert num.is_integer(), num
+    outshape = np.round(outshape).astype(int)
+
+    return outshape
+
+
+def padder(dat, pad, skip_axes=[0]):
+    """ Returns an array padded with zeros with specified depth on both sides of each axis. A list of
+        axes can be specified, which will not receive any padding.
+
+        Parameters
+        ----------
+        dat : numpy.ndarray
+            Array to be padded
+        pad : int ( >= 0)
+            Padding depth to be used on each end of a padding axis.
+        skip_axes : Union[int, Iterable[int, ...]]
+            The indices corresponding to axes that will not be padded.
+
+        Returns
+        -------
+        out : numpy.ndarray
+            Array padded with zeros."""
+    assert pad >= 0 and type(pad) == int
+    if pad == 0:
+        return dat
+
+    if type(skip_axes) == int:
+        skip_axes = [skip_axes]
+    assert hasattr(skip_axes, '__iter__')
+    padding = [(pad, pad) for i in xrange(dat.ndim)]
+
+    for ax in skip_axes:
+        padding[ax] = (0, 0)
+
+    return np.pad(dat, padding, mode='constant').astype(dat.dtype)
 
 
 def conv_forward_naive(x, w, b, conv_param):
@@ -392,64 +428,19 @@ def conv_forward_naive(x, w, b, conv_param):
       W' = 1 + (W + 2 * pad - WW) / stride
     - cache: (x, w, b, conv_param)
     """
-    tmp = 1. + (np.array(x.shape[2:]) + 2*conv_param['pad'] - np.array(w.shape[2:]))/conv_param['stride']
-    out = np.zeros((x.shape[0], w.shape[0], int(round(tmp[0])), int(round(tmp[1]))))
-    outshape = None
-    for n, kernel in enumerate(w):
-        out[:, n:n+1, :, :] = multi_layer_conv(x, kernel, conv_param['stride'], conv_param['pad'], outshape=outshape)
-        out[:, n:n+1, :, :] += b[n]
+
+    pad_x = padder(x, conv_param['pad'], skip_axes=[0, 1])
+    conv_out_shape = get_outshape(pad_x[0].shape, w[0].shape, conv_param['stride'])
+    out = np.zeros((x.shape[0], w.shape[0], conv_out_shape[-2], conv_out_shape[-1]))
+
+    for nk, kernel in enumerate(w):
+        conv_kernel = flip_ndarray(kernel)
+        for nd, dat in enumerate(pad_x):
+            out[nd, nk, :, :] = nd_convolve(dat, conv_kernel, conv_param['stride'], conv_out_shape)
+        out[:, nk:nk+1, :, :] += b[nk]
 
     cache = (x, w, b, conv_param)
     return out, cache
-
-
-def back_prop_dw(data, dout, kernel, stride, pad):
-    dw = np.zeros_like(kernel, dtype=kernel.dtype)
-    for n, dat in enumerate(data):
-        dy = dout[n][np.newaxis, :, :]
-        if n == 0:  # initialize output and stride information
-            npad = np.array([0]+[pad for i in xrange(dat.ndim-1)])
-            outshape = (np.array(dat.shape)-np.array(kernel.shape)+2.*npad)/float(stride)+1.
-            outshape = np.round(outshape).astype(int)
-
-            if pad:
-                pad = [(0, 0)] + [(pad, pad) for i in xrange(dat.ndim-1)]
-
-        all_pos = list(product(*[stride*np.arange(i) for i in outshape]))
-        all_slices = [tuple(slice(start, start+kernel.shape[i]) for i,start in enumerate(x)) for x in all_pos]
-
-        if pad:
-            dat = np.pad(dat, pad, mode='constant').astype(dat.dtype)
-
-        for i,slices in enumerate(all_slices):
-            loc = np.unravel_index(i, outshape)
-            dw += dy[loc]*dat[slices]
-    return dw
-
-
-def back_prop_dx(data, dout, kernel, stride, pad):
-    for n, dat in enumerate(data):
-        dy = dout[n][np.newaxis, :, :]
-        out = np.zeros((dat.shape[0], dat.shape[1]+2*pad, dat.shape[2]+2*pad), dtype=data.dtype)
-        if n == 0:  # initialize output and stride information
-            npad = np.array([0]+[pad for i in xrange(dat.ndim-1)])
-            outshape = (np.array(dat.shape)-np.array(kernel.shape)+2.*npad)/float(stride)+1.
-            outshape = np.round(outshape).astype(int)
-
-            total_out = np.zeros(data.shape, dtype=dat.dtype)
-            all_pos = list(product(*[stride*np.arange(i) for i in outshape]))
-            all_slices = [tuple(slice(start, start+kernel.shape[i]) for i,start in enumerate(x)) for x in all_pos]
-
-        for i, slices in enumerate(all_slices):
-            loc = np.unravel_index(i, outshape)
-
-            out[slices] += dy[loc]*kernel
-
-        if pad:
-            out = out[:, pad:-pad, pad:-pad]
-
-        total_out[n] = out[:]
-    return total_out
 
 
 def conv_backward_naive(dout, cache):
@@ -470,19 +461,129 @@ def conv_backward_naive(dout, cache):
 
     dx = np.zeros_like(x, dtype=x.dtype)
     dw = np.zeros_like(w, dtype=w.dtype)
-
-    for n, kernel in enumerate(w):
-        dx += back_prop_dx(x, dout[:,n,:,:], kernel, conv_param['stride'], conv_param['pad'])
-        dw[n:n+1, :, :, :] = back_prop_dw(x, dout[:,n,:,:], kernel, conv_param['stride'], conv_param['pad'])
     db = np.sum(dout, axis=(0, 2, 3))
-    #############################################################################
-    # TODO: Implement the convolutional backward pass.                          #
-    #############################################################################
-    pass
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+
+    pad = conv_param['pad']
+    stride = conv_param['stride']
+
+    npad = np.array([0]+[pad for i in xrange(x[0].ndim-1)])
+    outshape = (np.array(x[0].shape)-np.array(w[0].shape)+2.*npad)/float(stride)+1.
+    outshape = np.round(outshape).astype(int)
+
+    all_pos = list(product(*[stride*np.arange(i) for i in outshape]))
+    all_slices = [tuple(slice(start, start+w[0].shape[i]) for i,start in enumerate(j)) for j in all_pos]
+
+    if pad:
+        pad_ax = [(0, 0)] + [(pad, pad) for i in xrange(x[0].ndim-1)]
+
+    for nk, kernel in enumerate(w):
+        dx_kernel = np.zeros(x.shape, dtype=x.dtype)
+        dkernel = np.zeros_like(kernel, dtype=kernel.dtype)
+        for nd, dat in enumerate(x):
+            if pad:
+                dat = np.pad(dat, pad_ax, mode='constant').astype(dat.dtype)
+
+            dy = dout[nd, nk][np.newaxis, :, :]
+            ddat = np.zeros((x[0].shape[0], x[0].shape[1]+2*pad, x[0].shape[2]+2*pad), dtype=x[0].dtype)
+
+            for i, slices in enumerate(all_slices):
+                loc = np.unravel_index(i, outshape)
+                dy_val = dy[loc]
+                ddat[slices] += dy_val*kernel
+                dkernel += dy_val*dat[slices]
+
+            if pad:
+                ddat = ddat[:, pad:-pad, pad:-pad]
+
+            dx_kernel[nd] = ddat[:]
+        dw[nk:nk+1] = dkernel
+        dx += dx_kernel
+
     return dx, dw, db
+
+
+def max_pool(x, pool_shape, stride, pooling_axes, backprop=False, dout=None):
+    """ Pool the values of an ndarray, by taking the max over a specified pooling
+        filter volume that rasters across the specified axes of x with a given stride.
+
+        A backprop flag can be toggled to, instead, perform back-propagation through the
+        maxpool layer (i.e. pass gradient values through of the array elements that
+        contributed to the forward pooling).
+
+        Parameters
+        ----------
+        x : numpy.ndarray
+            Input array to be pooled.
+        pool_shape : Iterable[int, ...]
+            Shape of pooling filter.
+        stride : int ( > 0)
+            Step size used while rastering the pooling filter across x.
+        pooling_axes : Union[int, Iterable[int, ...]]
+            The axes along which the values of x will be max-pooled.
+        backprop : bool, optional
+            Indicates whether or not max_pool performs back propagation
+            instead of pooling.
+        dout : Union[NoneType, numpy.ndarray]
+            "Upstream" array, whose values will be back propagated through
+             the max-pool layer. This must be specified if backprop is True.
+
+        Returns
+        -------
+        if backprop is False
+            out : numpy.ndarray
+                An array of the max-pooled values of x.
+
+        if backprop is True
+            dx : numpy.ndarray (shape=x.shape)
+                An array of values from dout back-propagated through the pooling layer.
+        """
+
+    if type(pooling_axes) is int:
+        pooling_axes = (pooling_axes)
+    pooling_axes = tuple(pooling_axes)
+
+    pool_only_slice = tuple(slice(None, None) if i in pooling_axes else 0 for i in range(x.ndim))
+    outshape = get_outshape(x[pool_only_slice].shape, pool_shape, stride)
+
+    if backprop:
+        assert dout is not None, "dout must be provided during backprop"
+        mask_view = tuple(np.newaxis if i in pooling_axes else slice(None, None) for i in range(x.ndim))
+        dx = np.zeros_like(x, dtype=x.dtype)
+
+    else:
+        tmp_shape = list(x.shape)
+        for i, ax in enumerate(pooling_axes):
+            tmp_shape[ax] = outshape[i]
+        out = np.zeros(tmp_shape, dtype=x.dtype)
+
+    all_slices = [slice(None, None) for i in range(x.ndim)]
+
+    # iterate over positions to place the pooling filter
+    for i, pos in enumerate(product(*[stride*np.arange(i) for i in outshape])):
+
+        slices = all_slices[:]
+        # generate slices to make pooling filter views of x
+        for j, start in enumerate(pos):
+            slices[pooling_axes[j]] = slice(start, start + pool_shape[j])
+        slices = tuple(slices)
+
+        # generate slices of output array to update
+        inds = np.unravel_index(i, outshape)
+        loc = all_slices[:]
+        for cnt, ax in enumerate(pooling_axes):
+            loc[ax] = inds[cnt]
+
+        maxes = np.amax(x[slices], axis=pooling_axes)
+
+        if not backprop:
+            out[loc] = maxes
+        else:
+            dx[slices][np.where(x[slices] == maxes[mask_view])] = dout[loc].flat
+
+    if not backprop:
+        return out
+    else:
+        return dx
 
 
 def max_pool_forward_naive(x, pool_param):
@@ -500,16 +601,10 @@ def max_pool_forward_naive(x, pool_param):
     - out: Output data
     - cache: (x, pool_param)
     """
-    out = None
-    #############################################################################
-    # TODO: Implement the max pooling forward pass                              #
-    #############################################################################
-    pass
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+
+    pool_shape = (pool_param['pool_height'], pool_param['pool_width'])
     cache = (x, pool_param)
-    return out, cache
+    return max_pool(x, pool_shape, pool_param['stride'], (2, 3)), cache
 
 
 def max_pool_backward_naive(dout, cache):
@@ -523,15 +618,9 @@ def max_pool_backward_naive(dout, cache):
     Returns:
     - dx: Gradient with respect to x
     """
-    dx = None
-    #############################################################################
-    # TODO: Implement the max pooling backward pass                             #
-    #############################################################################
-    pass
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
-    return dx
+    x, pool_param = cache
+    pool_shape = (pool_param['pool_height'], pool_param['pool_width'])
+    return max_pool(x, pool_shape, pool_param['stride'], (2, 3), backprop=True, dout=dout)
 
 
 def spatial_batchnorm_forward(x, gamma, beta, bn_param):
