@@ -307,7 +307,7 @@ def nd_convolve(dat, conv_kernel, stride, outshape=None):
 
         Parameters
         ----------
-        data : Iterable[numpy.ndarray, ...]
+        data : numpy.ndarray
             Array to be convolved over.
         kernel : numpy.ndarray
             Kernel used to perform convolution.
@@ -335,6 +335,7 @@ def nd_convolve(dat, conv_kernel, stride, outshape=None):
     if stride == 1:
         return full_conv
 
+    # all index positions to down-sample the convolution, given stride > 1
     all_pos = zip(*product(*(stride*np.arange(i) for i in outshape)))
     out = np.zeros(outshape, dtype=dat.dtype)
     out.flat = full_conv[all_pos]
@@ -470,16 +471,17 @@ def conv_backward_naive(dout, cache):
     outshape = (np.array(x[0].shape)-np.array(w[0].shape)+2.*npad)/float(stride)+1.
     outshape = np.round(outshape).astype(int)
 
+    # all positions to place the kernel
     all_pos = list(product(*[stride*np.arange(i) for i in outshape]))
     all_slices = [tuple(slice(start, start+w[0].shape[i]) for i,start in enumerate(j)) for j in all_pos]
 
     if pad:
         pad_ax = [(0, 0)] + [(pad, pad) for i in xrange(x[0].ndim-1)]
 
-    for nk, kernel in enumerate(w):
+    for nk, kernel in enumerate(w):  # iterate over all kernels
         dx_kernel = np.zeros(x.shape, dtype=x.dtype)
         dkernel = np.zeros_like(kernel, dtype=kernel.dtype)
-        for nd, dat in enumerate(x):
+        for nd, dat in enumerate(x):  # iterate over each piece of data to be convolved
             if pad:
                 dat = np.pad(dat, pad_ax, mode='constant').astype(dat.dtype)
 
