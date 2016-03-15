@@ -517,7 +517,8 @@ def max_pool(x, pool_shape, stride, pooling_axes, backprop=False, dout=None):
         x : numpy.ndarray
             Input array to be pooled.
         pool_shape : Iterable[int, ...]
-            Shape of pooling filter.
+            Shape of the pooling_filter along each specified pooling axis, listed
+            in ascending axis order. No entries are provided for non-pooling axes.
         stride : int ( > 0)
             Step size used while rastering the pooling filter across x.
         pooling_axes : Union[int, Iterable[int, ...]]
