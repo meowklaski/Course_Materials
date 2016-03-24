@@ -311,9 +311,15 @@ def nd_convolve(dat, conv_kernel, stride, outshape=None):
             Array to be convolved over.
         kernel : numpy.ndarray
             Kernel used to perform convolution.
-        stride : int ( > 0)
-            Step size used while sliding the kernel during the convolution.
-        outshape : Union[NoneType, Tuple[int, ...]], optional
+        stride : Union[Iterable[int, ...], Dict[int, int], int]
+            Step sizes used while sliding the kernel during the convolution.
+             - If a dictionary is provided, then it is used to map (axis-index -> stride-value). If an
+               axis is not specified in the dictionary keys, then a stride of 1 is used along that axis.
+             - If an iterable is provided, it must provide an explicit stride value for each axis (in order
+               of ascending axis-index).
+             - If a single stride value is specified, that value is used for every axis.
+
+        outshape : Optional[Tuple[int, ...]]
             Provide the known output shape of the convolution, allowing the function to bypass
             sanity checks and some initial computations.
 
@@ -327,16 +333,24 @@ def nd_convolve(dat, conv_kernel, stride, outshape=None):
     else:
         conv = convolve
 
+    if type(stride) is dict:
+        stride_gen = (stride.get(key, 1) for key in range(dat.ndim))
+    elif hasattr(stride, '__iter__'):
+        stride_gen = stride
+    else:
+        stride_gen = (stride for i in range(dat.ndim))
+    stride = np.fromiter(stride_gen, dtype=int)
+
     if outshape is None:
         outshape = get_outshape(dat.shape, conv_kernel.shape, stride)
 
     full_conv = conv(dat, conv_kernel, mode='valid')
 
-    if stride == 1:
+    if np.all(stride == 1):
         return full_conv
 
     # all index positions to down-sample the convolution, given stride > 1
-    all_pos = zip(*product(*(stride*np.arange(i) for i in outshape)))
+    all_pos = zip(*product(*(stride[n]*np.arange(i) for n,i in enumerate(outshape))))
     out = np.zeros(outshape, dtype=dat.dtype)
     out.flat = full_conv[all_pos]
     return out
@@ -352,24 +366,28 @@ def get_outshape(dat_shape, kernel_shape, stride):
             Shape of array to be convolved over.
         kernel_shape : Iterable[int, ...]
             Shape of kernel used to perform convolution.
-        stride : int ( > 0)
+        stride : Union[int, Iterable[int, ...]] ( > 0)
             Step size used while sliding the kernel during the convolution.
 
         Returns
         -------
         out : numpy.ndarray([int, ...])
             Shape of the array resulting from the convolution."""
+
     dat_shape = np.array(dat_shape)
     kernel_shape = np.array(kernel_shape)
 
-    assert stride > 0
-    stride = int(round(stride))
+    if hasattr(stride, '__iter__'):
+        stride = np.fromiter(stride, dtype=float)
+        assert len(stride) == len(dat_shape), 'The stride iterable must provide a stride value for each dat axis.'
+    else:
+        stride = float(stride)
     assert len(dat_shape) == len(kernel_shape), "kernel and data must have same number of dimensions"
 
     outshape = (dat_shape-kernel_shape)/stride+1.
     for num in outshape:
         assert num.is_integer(), num
-    outshape = np.round(outshape).astype(int)
+    outshape = np.rint(outshape).astype(int)
 
     return outshape
 
