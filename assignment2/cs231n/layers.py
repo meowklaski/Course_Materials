@@ -183,17 +183,10 @@ def batchnorm_backward(dout, cache):
     - dgamma: Gradient with respect to scale parameter gamma, of shape (D,)
     - dbeta: Gradient with respect to shift parameter beta, of shape (D,)
     """
-    x_shift, x_norm, var_eps, gamma = cache
-    dx_norm = gamma*dout
 
-    dgamma = np.einsum('ij,ij->j', dout, x_norm)
-    dbeta = np.sum(dout, axis=0)
+    # I just did the alt version...vanilla was dumb
 
-    dx = dx_norm - np.mean(dx_norm, axis=0)
-    dx -= x_shift*np.einsum('ij,ij->j', dx_norm, x_shift)/(var_eps*dx_norm.shape[0])
-    dx /= np.sqrt(var_eps)
-
-    return dx, dgamma, dbeta
+    return batchnorm_backward_alt(dout, cache)
 
 
 def batchnorm_backward_alt(dout, cache):
@@ -453,6 +446,7 @@ def conv_forward_naive(x, w, b, conv_param):
     out = np.zeros((x.shape[0], w.shape[0], conv_out_shape[-2], conv_out_shape[-1]))
 
     for nk, kernel in enumerate(w):
+        # note: we are actually computing a correlation, not a convolution
         conv_kernel = flip_ndarray(kernel)
         for nd, dat in enumerate(pad_x):
             out[nd, nk, :, :] = nd_convolve(dat, conv_kernel, conv_param['stride'], conv_out_shape)
@@ -668,6 +662,9 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
     """
     out, cache = None, None
 
+    N, C, H, W = x.shape
+    out, cache = batchnorm_forward(x.reshape(-1, C), gamma, beta, bn_param)
+
     #############################################################################
     # TODO: Implement the forward pass for spatial batch normalization.         #
     #                                                                           #
@@ -680,7 +677,7 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
     #                             END OF YOUR CODE                              #
     #############################################################################
 
-    return out, cache
+    return out.reshape(N, C, H, W), cache
 
 
 def spatial_batchnorm_backward(dout, cache):
@@ -697,7 +694,9 @@ def spatial_batchnorm_backward(dout, cache):
     - dbeta: Gradient with respect to shift parameter, of shape (C,)
     """
     dx, dgamma, dbeta = None, None, None
+    N, C, H, W = dout.shape
 
+    dx, dgamma, dbeta = batchnorm_backward_alt(dout.reshape(-1, C), cache)
     #############################################################################
     # TODO: Implement the backward pass for spatial batch normalization.        #
     #                                                                           #
@@ -710,7 +709,7 @@ def spatial_batchnorm_backward(dout, cache):
     #                             END OF YOUR CODE                              #
     #############################################################################
 
-    return dx, dgamma, dbeta
+    return dx.reshape(N, C, H, W), dgamma, dbeta
 
 
 def svm_loss(x, y):
